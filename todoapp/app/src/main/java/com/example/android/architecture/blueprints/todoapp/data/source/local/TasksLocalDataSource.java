@@ -37,8 +37,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
  */
 public class TasksLocalDataSource implements TasksDataSource {
 
+    private static final String[] PROJECTION = new String[]{
+            TaskEntry.COLUMN_NAME_ENTRY_ID,
+            TaskEntry.COLUMN_NAME_TITLE,
+            TaskEntry.COLUMN_NAME_DESCRIPTION,
+            TaskEntry.COLUMN_NAME_COMPLETED
+    };
     private static TasksLocalDataSource INSTANCE;
-
     private TasksDbHelper mDbHelper;
 
     // Prevent direct instantiation.
@@ -63,32 +68,18 @@ public class TasksLocalDataSource implements TasksDataSource {
         List<Task> tasks = new ArrayList<Task>();
         SQLiteDatabase db = mDbHelper.getReadableDatabase();
 
-        String[] projection = {
-                TaskEntry.COLUMN_NAME_ENTRY_ID,
-                TaskEntry.COLUMN_NAME_TITLE,
-                TaskEntry.COLUMN_NAME_DESCRIPTION,
-                TaskEntry.COLUMN_NAME_COMPLETED
-        };
-
         Cursor c = db.query(
-                TaskEntry.TABLE_NAME, projection, null, null, null, null, null);
+                TaskEntry.TABLE_NAME, PROJECTION, null, null, null, null, null);
 
         if (c != null && c.getCount() > 0) {
             while (c.moveToNext()) {
-                String itemId = c.getString(c.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_ENTRY_ID));
-                String title = c.getString(c.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_TITLE));
-                String description =
-                        c.getString(c.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_DESCRIPTION));
-                boolean completed =
-                        c.getInt(c.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_COMPLETED)) == 1;
-                Task task = new Task(title, description, itemId, completed);
+                Task task = createTaskFromCursor(c);
                 tasks.add(task);
             }
         }
         if (c != null) {
             c.close();
         }
-
         db.close();
 
         if (tasks.isEmpty()) {
@@ -108,31 +99,19 @@ public class TasksLocalDataSource implements TasksDataSource {
     public void getTask(@NonNull String taskId, @NonNull GetTaskCallback callback) {
         SQLiteDatabase db = mDbHelper.getReadableDatabase();
 
-        String[] projection = {
-                TaskEntry.COLUMN_NAME_ENTRY_ID,
-                TaskEntry.COLUMN_NAME_TITLE,
-                TaskEntry.COLUMN_NAME_DESCRIPTION,
-                TaskEntry.COLUMN_NAME_COMPLETED
-        };
-
         String selection = TaskEntry.COLUMN_NAME_ENTRY_ID + " LIKE ?";
         String[] selectionArgs = { taskId };
 
         Cursor c = db.query(
-                TaskEntry.TABLE_NAME, projection, selection, selectionArgs, null, null, null);
+                TaskEntry.TABLE_NAME, PROJECTION, selection, selectionArgs, null, null, null);
 
         Task task = null;
 
         if (c != null && c.getCount() > 0) {
             c.moveToFirst();
-            String itemId = c.getString(c.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_ENTRY_ID));
-            String title = c.getString(c.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_TITLE));
-            String description =
-                    c.getString(c.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_DESCRIPTION));
-            boolean completed =
-                    c.getInt(c.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_COMPLETED)) == 1;
-            task = new Task(title, description, itemId, completed);
+            task = createTaskFromCursor(c);
         }
+
         if (c != null) {
             c.close();
         }
@@ -164,17 +143,7 @@ public class TasksLocalDataSource implements TasksDataSource {
 
     @Override
     public void completeTask(@NonNull Task task) {
-        SQLiteDatabase db = mDbHelper.getWritableDatabase();
-
-        ContentValues values = new ContentValues();
-        values.put(TaskEntry.COLUMN_NAME_COMPLETED, true);
-
-        String selection = TaskEntry.COLUMN_NAME_ENTRY_ID + " LIKE ?";
-        String[] selectionArgs = { task.getId() };
-
-        db.update(TaskEntry.TABLE_NAME, values, selection, selectionArgs);
-
-        db.close();
+        changeTaskStatus(task, true);
     }
 
     @Override
@@ -185,17 +154,7 @@ public class TasksLocalDataSource implements TasksDataSource {
 
     @Override
     public void activateTask(@NonNull Task task) {
-        SQLiteDatabase db = mDbHelper.getWritableDatabase();
-
-        ContentValues values = new ContentValues();
-        values.put(TaskEntry.COLUMN_NAME_COMPLETED, false);
-
-        String selection = TaskEntry.COLUMN_NAME_ENTRY_ID + " LIKE ?";
-        String[] selectionArgs = { task.getId() };
-
-        db.update(TaskEntry.TABLE_NAME, values, selection, selectionArgs);
-
-        db.close();
+        changeTaskStatus(task, false);
     }
 
     @Override
@@ -224,22 +183,42 @@ public class TasksLocalDataSource implements TasksDataSource {
 
     @Override
     public void deleteAllTasks() {
-        SQLiteDatabase db = mDbHelper.getWritableDatabase();
-
-        db.delete(TaskEntry.TABLE_NAME, null, null);
-
-        db.close();
+        delete(null, null);
     }
 
     @Override
     public void deleteTask(@NonNull String taskId) {
-        SQLiteDatabase db = mDbHelper.getWritableDatabase();
-
         String selection = TaskEntry.COLUMN_NAME_ENTRY_ID + " LIKE ?";
         String[] selectionArgs = { taskId };
 
-        db.delete(TaskEntry.TABLE_NAME, selection, selectionArgs);
+        delete(selection, selectionArgs);
+    }
 
+    private void delete(String selection, String[] selectionArgs) {
+        SQLiteDatabase db = mDbHelper.getWritableDatabase();
+        db.delete(TaskEntry.TABLE_NAME, selection, selectionArgs);
+        db.close();
+    }
+
+    @NonNull
+    private Task createTaskFromCursor(Cursor cursor) {
+        String itemId = cursor.getString(cursor.getColumnIndex(TaskEntry.COLUMN_NAME_ENTRY_ID));
+        String title = cursor.getString(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_TITLE));
+        String description = cursor.getString(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_DESCRIPTION));
+        boolean completed = cursor.getInt(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_COMPLETED)) == 1;
+
+        return new Task(title, description, itemId, completed);
+    }
+
+    private void changeTaskStatus(@NonNull Task task, boolean status) {
+        ContentValues values = new ContentValues();
+        values.put(TaskEntry.COLUMN_NAME_COMPLETED, status);
+
+        String selection = TaskEntry.COLUMN_NAME_ENTRY_ID + " LIKE ?";
+        String[] selectionArgs = {task.getId()};
+
+        SQLiteDatabase db = mDbHelper.getWritableDatabase();
+        db.update(TaskEntry.TABLE_NAME, values, selection, selectionArgs);
         db.close();
     }
 }
